@@ -1,0 +1,318 @@
+# Panel HA dla ładowarki Feyree (ESPHome) – widok "sections", tylko wbudowane karty.
+# Encje z prefiksem ev_charger_* to stare entity_id przejęte przez ESPHome (migracja historii).
+# Encje feyree_ev_11kw_* to nowe encje ESPHome – jeśli u Ciebie nazywają się inaczej,
+# popraw je (Ustawienia → Urządzenia → Feyree EV 11kW).
+type: sections
+max_columns: 4
+title: EV
+path: ev
+icon: mdi:car-electric
+sections:
+  # ───────────────────────── STAN ─────────────────────────
+  - type: grid
+    cards:
+      - type: heading
+        heading: Ładowarka
+        icon: mdi:ev-station
+        heading_style: title
+        badges:
+          - type: entity
+            entity: binary_sensor.feyree_ev_11kw_status_polaczenia
+            show_state: true
+            show_icon: true
+            color: state
+          - type: entity
+            entity: sensor.ev_charger_temperatura
+            show_state: true
+            show_icon: true
+
+      # Alarm – widoczny tylko przy awarii
+      - type: markdown
+        content: >-
+          ### ⚠️ Awaria ładowarki
+
+          **{{ states('sensor.feyree_ev_11kw_blad') }}**
+        visibility:
+          - condition: state
+            entity: binary_sensor.ev_charger_problem
+            state: "on"
+
+      - type: tile
+        entity: sensor.ev_charger_status
+        name: Status
+        icon: mdi:ev-plug-type2
+        color: green
+        grid_options:
+          columns: 12
+
+      - type: gauge
+        entity: sensor.ev_charger_moc
+        name: Moc ładowania
+        unit: kW
+        min: 0
+        max: 11
+        needle: true
+        segments:
+          - from: 0
+            color: "#43a047"
+          - from: 7
+            color: "#fdd835"
+          - from: 10
+            color: "#e53935"
+        grid_options:
+          columns: 6
+          rows: 3
+
+      - type: gauge
+        entity: sensor.ev_charger_temperatura
+        name: Temperatura
+        unit: °C
+        min: 0
+        max: 80
+        needle: true
+        segments:
+          - from: 0
+            color: "#039be5"
+          - from: 20
+            color: "#43a047"
+          - from: 50
+            color: "#fdd835"
+          - from: 65
+            color: "#e53935"
+        grid_options:
+          columns: 6
+          rows: 3
+
+      - type: tile
+        entity: sensor.ev_charger_energia
+        name: Energia sesji
+        icon: mdi:battery-charging
+        color: amber
+      - type: tile
+        entity: sensor.ev_charger_charging_time
+        name: Licznik czasu
+        icon: mdi:timer-outline
+        color: blue
+
+  # ─────────────────────── STEROWANIE ─────────────────────
+  - type: grid
+    cards:
+      - type: heading
+        heading: Sterowanie
+        icon: mdi:tune-variant
+        heading_style: title
+
+      - type: tile
+        entity: select.ev_charger_charging
+        name: Ładowanie
+        icon: mdi:ev-station
+        color: green
+        features_position: bottom
+        features:
+          - type: select-options
+        grid_options:
+          columns: 12
+
+      - type: tile
+        entity: number.ev_charger_set_charge_current
+        name: Prąd ładowania
+        icon: mdi:current-ac
+        color: orange
+        features_position: bottom
+        features:
+          - type: numeric-input
+            style: slider
+        grid_options:
+          columns: 12
+
+      - type: tile
+        entity: number.ev_charger_charge_delay
+        name: Opóźnienie startu
+        icon: mdi:clock-start
+        color: purple
+        features_position: bottom
+        features:
+          - type: numeric-input
+            style: buttons
+      - type: tile
+        entity: number.ev_charger_charging_duration
+        name: Limit czasu
+        icon: mdi:timer-cog-outline
+        color: purple
+        features_position: bottom
+        features:
+          - type: numeric-input
+            style: buttons
+
+      - type: tile
+        entity: sensor.feyree_ev_11kw_opoznienie_wyswietlacz
+        name: Wyświetlacz opóźnienia
+        icon: mdi:monitor
+        visibility:
+          - condition: numeric_state
+            entity: number.ev_charger_charge_delay
+            above: 0
+      - type: tile
+        entity: sensor.feyree_ev_11kw_limit_czasu_wyswietlacz
+        name: Wyświetlacz limitu
+        icon: mdi:monitor
+        visibility:
+          - condition: numeric_state
+            entity: number.ev_charger_charging_duration
+            above: 0
+
+  # ─────────────────────── SIEĆ 3 FAZY ────────────────────
+  - type: grid
+    cards:
+      - type: heading
+        heading: Sieć – 3 fazy
+        icon: mdi:transmission-tower
+        heading_style: title
+
+      - type: tile
+        entity: sensor.ev_charger_napiecie
+        name: L1
+        icon: mdi:sine-wave
+        color: brown
+        grid_options:
+          columns: 4
+      - type: tile
+        entity: sensor.ev_charger_napiecie_b
+        name: L2
+        icon: mdi:sine-wave
+        color: grey
+        grid_options:
+          columns: 4
+      - type: tile
+        entity: sensor.ev_charger_napiecie_c
+        name: L3
+        icon: mdi:sine-wave
+        color: blue-grey
+        grid_options:
+          columns: 4
+
+      - type: tile
+        entity: sensor.ev_charger_natezenie_pradu
+        name: L1
+        icon: mdi:current-ac
+        color: brown
+        grid_options:
+          columns: 4
+      - type: tile
+        entity: sensor.ev_charger_prad_b
+        name: L2
+        icon: mdi:current-ac
+        color: grey
+        grid_options:
+          columns: 4
+      - type: tile
+        entity: sensor.ev_charger_prad_c
+        name: L3
+        icon: mdi:current-ac
+        color: blue-grey
+        grid_options:
+          columns: 4
+
+      - type: history-graph
+        title: Prąd faz – 24 h
+        hours_to_show: 24
+        entities:
+          - entity: sensor.ev_charger_natezenie_pradu
+            name: L1
+          - entity: sensor.ev_charger_prad_b
+            name: L2
+          - entity: sensor.ev_charger_prad_c
+            name: L3
+        grid_options:
+          columns: 12
+
+  # ───────────────────────── ENERGIA ──────────────────────
+  - type: grid
+    cards:
+      - type: heading
+        heading: Energia
+        icon: mdi:lightning-bolt
+        heading_style: title
+
+      - type: tile
+        entity: sensor.ev_charger
+        name: Całkowite zużycie
+        icon: mdi:lightning-bolt-circle
+        color: amber
+        grid_options:
+          columns: 12
+
+      - type: statistics-graph
+        title: Dziennie – 30 dni
+        entities:
+          - entity: sensor.ev_charger
+            name: Energia
+        stat_types:
+          - change
+        period: day
+        days_to_show: 30
+        chart_type: bar
+        hide_legend: true
+        grid_options:
+          columns: 12
+
+      - type: statistics-graph
+        title: Miesięcznie – 12 miesięcy
+        entities:
+          - entity: sensor.ev_charger
+            name: Energia
+        stat_types:
+          - change
+        period: month
+        days_to_show: 365
+        chart_type: bar
+        hide_legend: true
+        grid_options:
+          columns: 12
+
+      - type: history-graph
+        title: Moc – 24 h
+        hours_to_show: 24
+        entities:
+          - entity: sensor.ev_charger_moc
+            name: Moc
+        grid_options:
+          columns: 12
+
+  # ─────────────────────── DIAGNOSTYKA ────────────────────
+  - type: grid
+    cards:
+      - type: heading
+        heading: Diagnostyka
+        icon: mdi:stethoscope
+        heading_style: subtitle
+
+      - type: tile
+        entity: binary_sensor.ev_charger_problem
+        name: Awaria
+        color: red
+      - type: tile
+        entity: sensor.feyree_ev_11kw_blad
+        name: Kod błędu
+        icon: mdi:alert-outline
+      - type: tile
+        entity: sensor.feyree_ev_11kw_wifi_sygnal
+        name: WiFi
+        icon: mdi:wifi
+      - type: tile
+        entity: sensor.feyree_ev_11kw_uptime
+        name: Uptime
+      - type: tile
+        entity: button.feyree_ev_11kw_restart_esp
+        name: Restart ESP
+        icon: mdi:restart
+        color: red
+        hold_action:
+          action: perform-action
+          perform_action: button.press
+          target:
+            entity_id: button.feyree_ev_11kw_restart_esp
+          confirmation:
+            text: Zrestartować ESP ładowarki?
+        tap_action:
+          action: more-info

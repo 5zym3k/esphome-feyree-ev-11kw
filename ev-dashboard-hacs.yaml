@@ -1,0 +1,402 @@
+# Panel HA dla ładowarki Feyree (ESPHome) – wersja z kartami HACS.
+# Wymagane z HACS (Frontend): Mushroom, ApexCharts Card.
+# Encje ev_charger_* to stare entity_id przejęte przez ESPHome (migracja historii),
+# feyree_ev_11kw_* to nowe encje ESPHome – popraw, jeśli u Ciebie nazywają się inaczej.
+type: sections
+max_columns: 4
+title: EV
+path: ev
+icon: mdi:car-electric
+sections:
+  # ───────────────────────── STAN ─────────────────────────
+  - type: grid
+    cards:
+      - type: custom:mushroom-chips-card
+        alignment: center
+        chips:
+          - type: template
+            entity: binary_sensor.feyree_ev_11kw_status_polaczenia
+            icon: mdi:wifi
+            icon_color: >-
+              {{ 'green' if is_state(entity, 'on') else 'red' }}
+            content: >-
+              {{ states('sensor.feyree_ev_11kw_wifi_sygnal') | int(0) }} dBm
+          - type: template
+            entity: sensor.ev_charger_temperatura
+            icon: mdi:thermometer
+            icon_color: >-
+              {% set t = states(entity) | float(0) %}
+              {{ 'red' if t > 65 else 'amber' if t > 50 else 'blue' }}
+            content: "{{ states(entity) }} °C"
+          - type: template
+            entity: binary_sensor.ev_charger_problem
+            icon: >-
+              {{ 'mdi:alert' if is_state(entity, 'on') else 'mdi:check-circle' }}
+            icon_color: >-
+              {{ 'red' if is_state(entity, 'on') else 'green' }}
+            content: >-
+              {{ states('sensor.feyree_ev_11kw_blad') }}
+        grid_options:
+          columns: 12
+
+      - type: custom:mushroom-template-card
+        entity: sensor.ev_charger_status
+        primary: >-
+          {{ {'available':'Wolna','plugged_in':'Auto podłączone','charging':'Ładuje',
+              'waiting_for_authorization':'Czeka na autoryzację','charged':'Naładowane',
+              'waiting':'Oczekuje','fault':'Awaria'}.get(states(entity), states(entity)) }}
+        secondary: >-
+          {% if is_state(entity, 'charging') %}
+            {{ states('sensor.ev_charger_moc') }} kW · {{ states('sensor.ev_charger_energia') }} kWh · {{ states('sensor.ev_charger_charging_time') }}
+          {% elif states('number.ev_charger_charge_delay') | int(0) > 0 %}
+            Start za {{ states('sensor.ev_charger_charging_time') }}
+          {% else %}
+            Ostatnia sesja: {{ states('sensor.ev_charger_energia') }} kWh
+          {% endif %}
+        icon: >-
+          {{ {'available':'mdi:ev-station','plugged_in':'mdi:ev-plug-type2',
+              'charging':'mdi:battery-charging-high','charged':'mdi:battery-check',
+              'waiting':'mdi:timer-sand','fault':'mdi:alert-octagon'}.get(states(entity), 'mdi:ev-station') }}
+        icon_color: >-
+          {{ {'available':'grey','plugged_in':'blue','charging':'green',
+              'charged':'teal','waiting':'amber','fault':'red'}.get(states(entity), 'grey') }}
+        badge_icon: >-
+          {{ 'mdi:flash' if is_state(entity, 'charging') }}
+        badge_color: amber
+        layout: horizontal
+        fill_container: true
+        multiline_secondary: true
+        tap_action:
+          action: more-info
+        grid_options:
+          columns: 12
+          rows: 2
+
+      - type: gauge
+        entity: sensor.ev_charger_moc
+        name: Moc
+        unit: kW
+        min: 0
+        max: 11
+        needle: true
+        segments:
+          - from: 0
+            color: "#43a047"
+          - from: 7
+            color: "#fdd835"
+          - from: 10
+            color: "#e53935"
+        grid_options:
+          columns: 6
+          rows: 3
+
+      - type: custom:mushroom-template-card
+        entity: sensor.ev_charger_energia
+        primary: "{{ states(entity) }} kWh"
+        secondary: Energia sesji
+        icon: mdi:battery-charging
+        icon_color: amber
+        layout: vertical
+        fill_container: true
+        grid_options:
+          columns: 6
+          rows: 3
+
+  # ─────────────────────── STEROWANIE ─────────────────────
+  - type: grid
+    cards:
+      - type: heading
+        heading: Sterowanie
+        icon: mdi:tune-variant
+        heading_style: title
+
+      - type: custom:mushroom-template-card
+        primary: Start ładowania
+        icon: mdi:play-circle
+        icon_color: green
+        layout: vertical
+        tap_action:
+          action: perform-action
+          perform_action: select.select_option
+          target:
+            entity_id: select.ev_charger_charging
+          data:
+            option: "on"
+        grid_options:
+          columns: 4
+          rows: 2
+      - type: custom:mushroom-template-card
+        primary: Stop
+        icon: mdi:stop-circle
+        icon_color: red
+        layout: vertical
+        tap_action:
+          action: perform-action
+          perform_action: select.select_option
+          target:
+            entity_id: select.ev_charger_charging
+          data:
+            option: "off"
+          confirmation:
+            text: Zatrzymać ładowanie?
+        grid_options:
+          columns: 4
+          rows: 2
+      - type: custom:mushroom-template-card
+        primary: Auto
+        secondary: na żądanie
+        icon: mdi:car-clock
+        icon_color: blue
+        layout: vertical
+        tap_action:
+          action: perform-action
+          perform_action: select.select_option
+          target:
+            entity_id: select.ev_charger_charging
+          data:
+            option: on_demand
+        grid_options:
+          columns: 4
+          rows: 2
+
+      - type: custom:mushroom-number-card
+        entity: number.ev_charger_set_charge_current
+        name: Prąd ładowania
+        icon: mdi:current-ac
+        icon_color: orange
+        display_mode: slider
+        fill_container: true
+        grid_options:
+          columns: 12
+
+      - type: custom:mushroom-number-card
+        entity: number.ev_charger_charge_delay
+        name: Opóźnienie startu
+        icon: mdi:clock-start
+        icon_color: purple
+        display_mode: buttons
+        grid_options:
+          columns: 12
+      - type: custom:mushroom-number-card
+        entity: number.ev_charger_charging_duration
+        name: Limit czasu ładowania
+        icon: mdi:timer-cog-outline
+        icon_color: purple
+        display_mode: buttons
+        grid_options:
+          columns: 12
+
+      - type: custom:mushroom-template-card
+        primary: >-
+          {{ states('sensor.feyree_ev_11kw_opoznienie_wyswietlacz') }}
+          · {{ states('sensor.feyree_ev_11kw_limit_czasu_wyswietlacz') }}
+        secondary: "Licznik: {{ states('sensor.ev_charger_charging_time') }}"
+        icon: mdi:monitor
+        icon_color: grey
+        visibility:
+          - condition: or
+            conditions:
+              - condition: numeric_state
+                entity: number.ev_charger_charge_delay
+                above: 0
+              - condition: numeric_state
+                entity: number.ev_charger_charging_duration
+                above: 0
+        grid_options:
+          columns: 12
+
+  # ─────────────────────── SIEĆ 3 FAZY ────────────────────
+  - type: grid
+    cards:
+      - type: heading
+        heading: Sieć – 3 fazy
+        icon: mdi:transmission-tower
+        heading_style: title
+
+      - type: custom:mushroom-template-card
+        primary: L1
+        secondary: >-
+          {{ states('sensor.ev_charger_napiecie') }} V
+          · {{ states('sensor.ev_charger_natezenie_pradu') }} A
+        icon: mdi:sine-wave
+        icon_color: >-
+          {{ 'brown' if states('sensor.ev_charger_napiecie') | float(0) > 180 else 'disabled' }}
+        layout: vertical
+        grid_options:
+          columns: 4
+          rows: 2
+      - type: custom:mushroom-template-card
+        primary: L2
+        secondary: >-
+          {{ states('sensor.ev_charger_napiecie_b') }} V
+          · {{ states('sensor.ev_charger_prad_b') }} A
+        icon: mdi:sine-wave
+        icon_color: >-
+          {{ 'grey' if states('sensor.ev_charger_napiecie_b') | float(0) > 180 else 'disabled' }}
+        layout: vertical
+        grid_options:
+          columns: 4
+          rows: 2
+      - type: custom:mushroom-template-card
+        primary: L3
+        secondary: >-
+          {{ states('sensor.ev_charger_napiecie_c') }} V
+          · {{ states('sensor.ev_charger_prad_c') }} A
+        icon: mdi:sine-wave
+        icon_color: >-
+          {{ 'blue-grey' if states('sensor.ev_charger_napiecie_c') | float(0) > 180 else 'disabled' }}
+        layout: vertical
+        grid_options:
+          columns: 4
+          rows: 2
+
+      - type: custom:apexcharts-card
+        header:
+          show: true
+          title: Prąd i moc – 24 h
+          show_states: false
+        graph_span: 24h
+        update_interval: 1min
+        yaxis:
+          - id: a
+            min: 0
+            max: 16
+            decimals: 0
+            apex_config:
+              title:
+                text: A
+          - id: kw
+            opposite: true
+            min: 0
+            max: 11
+            decimals: 0
+            apex_config:
+              title:
+                text: kW
+        series:
+          - entity: sensor.ev_charger_natezenie_pradu
+            name: L1
+            yaxis_id: a
+            color: "#8d6e63"
+            stroke_width: 2
+            group_by:
+              func: avg
+              duration: 5min
+          - entity: sensor.ev_charger_prad_b
+            name: L2
+            yaxis_id: a
+            color: "#9e9e9e"
+            stroke_width: 2
+            group_by:
+              func: avg
+              duration: 5min
+          - entity: sensor.ev_charger_prad_c
+            name: L3
+            yaxis_id: a
+            color: "#607d8b"
+            stroke_width: 2
+            group_by:
+              func: avg
+              duration: 5min
+          - entity: sensor.ev_charger_moc
+            name: Moc
+            yaxis_id: kw
+            type: area
+            color: "#fbc02d"
+            opacity: 0.25
+            stroke_width: 1
+            group_by:
+              func: avg
+              duration: 5min
+        grid_options:
+          columns: 12
+          rows: 5
+
+  # ───────────────────────── ENERGIA ──────────────────────
+  - type: grid
+    cards:
+      - type: heading
+        heading: Energia
+        icon: mdi:lightning-bolt
+        heading_style: title
+
+      - type: custom:mushroom-template-card
+        entity: sensor.ev_charger
+        primary: "{{ states(entity) | float(0) | round(1) }} kWh"
+        secondary: Całkowite zużycie ładowarki
+        icon: mdi:lightning-bolt-circle
+        icon_color: amber
+        grid_options:
+          columns: 12
+
+      - type: custom:apexcharts-card
+        header:
+          show: true
+          title: Dziennie – 30 dni
+          show_states: true
+          colorize_states: true
+        graph_span: 30d
+        span:
+          end: day
+        series:
+          - entity: sensor.ev_charger
+            name: kWh
+            type: column
+            color: "#fbc02d"
+            float_precision: 1
+            statistics:
+              type: change
+              period: day
+              align: end
+            show:
+              in_header: false
+              datalabels: false
+        grid_options:
+          columns: 12
+          rows: 5
+
+      - type: statistics-graph
+        title: Miesięcznie – 12 miesięcy
+        entities:
+          - entity: sensor.ev_charger
+            name: Energia
+        stat_types:
+          - change
+        period: month
+        days_to_show: 365
+        chart_type: bar
+        hide_legend: true
+        grid_options:
+          columns: 12
+
+  # ─────────────────────── DIAGNOSTYKA ────────────────────
+  - type: grid
+    cards:
+      - type: heading
+        heading: Diagnostyka
+        icon: mdi:stethoscope
+        heading_style: subtitle
+
+      - type: custom:mushroom-entity-card
+        entity: sensor.feyree_ev_11kw_uptime
+        name: Uptime
+        icon_color: blue
+      - type: custom:mushroom-entity-card
+        entity: sensor.feyree_ev_11kw_wifi_sygnal
+        name: WiFi
+        icon: mdi:wifi
+        icon_color: green
+      - type: custom:mushroom-template-card
+        primary: Restart ESP
+        secondary: przytrzymaj
+        icon: mdi:restart
+        icon_color: red
+        tap_action:
+          action: none
+        hold_action:
+          action: perform-action
+          perform_action: button.press
+          target:
+            entity_id: button.feyree_ev_11kw_restart_esp
+          confirmation:
+            text: Zrestartować ESP ładowarki?

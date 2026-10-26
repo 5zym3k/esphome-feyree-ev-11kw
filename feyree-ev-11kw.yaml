@@ -1,0 +1,292 @@
+# Feyree 11 kW 3-fazowa ładowarka przenośna (CEE 16A, Typ 2) – MCU Tuya + ESP-12E/F
+#
+# Mapa DP na podstawie:
+#   - https://github.com/vm03/esphome-feyree-ev-charger (feyreeev_esp12e.yaml)
+#   - tuya-local: custom_components/tuya_local/devices/feyree_ev_portable_charger.yaml
+# Zweryfikowane z modelem urządzenia w Tuya Cloud (category qccdz, 2026-10-26)
+# i z logami MCU (product ebdm8ax35pgodi2s).
+# Pominięte DP: 3/14/15/16/18/23/25/27 (standardowe qccdz), 108 (MCU nie wysyła),
+# 111 (brak czujnika, -30°C), 113 (Max16A), 115-117/125/126 (inne warianty prądowe), 123 (RFID).
+#
+# Okablowanie ESP-12F (osobno, nie w footprincie modułu Tuya):
+#   do płytki ładowarki tylko: VCC (3V3), GND, TX (GPIO1) -> RX MCU, RX (GPIO3) <- TX MCU
+#   na samym ESP: EN -> 3V3, GPIO15 -> GND, GPIO0 -> 3V3 (10k lub przewód)
+#   GPIO15 wysoko przy starcie = "boot mode:(7,x) waiting for host" – ESP nie wystartuje
+
+substitutions:
+  name: feyree-ev-11kw
+  friendly_name: Feyree EV 11kW
+
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+
+esp8266:
+  board: esp12e
+  restore_from_flash: true
+
+# UART0 jest zajęty przez MCU – logi tylko przez WiFi.
+# MCU wysyła DP10/DP101 co ~0,5 s – na DEBUG to zalewa logi i obciąża ESP8266.
+# Do debugowania DP zmień tymczasowo na DEBUG.
+logger:
+  baud_rate: 0
+  level: INFO
+
+api:
+  encryption:
+    key: !secret encryption_key
+
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: Feyree-EV Fallback
+    password: Feyree-EV!
+
+captive_portal:
+
+web_server:
+  port: 80
+  auth:
+    type: digest                     # basic wysyła hasło praktycznie jawnym tekstem
+    username: admin
+    password: admin
+
+time:
+  - platform: homeassistant
+    id: ha_time
+
+uart:
+  id: tuya_uart
+  tx_pin: GPIO1
+  rx_pin: GPIO3
+  baud_rate: 9600
+
+tuya:
+  uart_id: tuya_uart
+  time_id: ha_time
+  on_datapoint_update:
+    # DP10 – bitmaska błędów (wszystkie aktywne błędy, oddzielone przecinkiem)
+    - sensor_datapoint: 10
+      datapoint_type: bitmask
+      then:
+        - lambda: |-
+            // kolejność bitów wg modelu Tuya Cloud tego urządzenia (różni się od vm03)
+            static const char *const FAULTS[16] = {
+              "Upływ prądu", "Błąd CP", "Za wysoka temperatura",
+              "Podnapięcie L1", "Podnapięcie L2", "Podnapięcie L3",
+              "Przepięcie L1", "Przepięcie L2", "Przepięcie L3",
+              "Przeciążenie prądowe", "Błąd 10", "Błąd 11", "ESB",
+              "Ostrzeżenie PE gniazda", "Upływ w gnieździe", "Błąd PE"};
+            std::string s;
+            for (int i = 0; i < 16; i++) {
+              if (x & (1u << i)) {
+                if (!s.empty()) s += ", ";
+                s += FAULTS[i];
+              }
+            }
+            if (s.empty()) s = "OK";
+            // MCU powtarza DP10 co ~0,5 s – publikuj tylko zmiany
+            if (!id(fault_text).has_state() || id(fault_text).state != s)
+              id(fault_text).publish_state(s);
+            if (!id(fault_active).has_state() || id(fault_active).state != (x != 0))
+              id(fault_active).publish_state(x != 0);
+    # DP101 – status ładowarki (enum), też powtarzany co ~0,5 s
+    - sensor_datapoint: 101
+      datapoint_type: enum
+      then:
+        - lambda: |-
+            static const char *const STATES[7] = {
+              "available", "plugged_in", "charging", "waiting_for_authorization",
+              "charged", "waiting", "fault"};
+            std::string s = x < 7 ? STATES[x] : "unknown_" + to_string(x);
+            if (!id(status_text).has_state() || id(status_text).state != s)
+              id(status_text).publish_state(s);
+
+sensor:
+  - platform: tuya
+    name: "Napięcie L1"
+    sensor_datapoint: 102
+    unit_of_measurement: "V"
+    device_class: voltage
+    state_class: measurement
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  - platform: tuya
+    name: "Napięcie L2"
+    sensor_datapoint: 103
+    unit_of_measurement: "V"
+    device_class: voltage
+    state_class: measurement
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  - platform: tuya
+    name: "Napięcie L3"
+    sensor_datapoint: 104
+    unit_of_measurement: "V"
+    device_class: voltage
+    state_class: measurement
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  - platform: tuya
+    name: "Prąd L1"
+    sensor_datapoint: 105
+    unit_of_measurement: "A"
+    device_class: current
+    state_class: measurement
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  - platform: tuya
+    name: "Prąd L2"
+    sensor_datapoint: 106
+    unit_of_measurement: "A"
+    device_class: current
+    state_class: measurement
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  - platform: tuya
+    name: "Prąd L3"
+    sensor_datapoint: 107
+    unit_of_measurement: "A"
+    device_class: current
+    state_class: measurement
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  - platform: tuya
+    name: "Moc ładowania"
+    sensor_datapoint: 109
+    unit_of_measurement: "kW"
+    device_class: power
+    state_class: measurement
+    accuracy_decimals: 1
+    icon: mdi:flash
+    filters:
+      - multiply: 0.1
+
+  - platform: tuya
+    name: "Temperatura"
+    sensor_datapoint: 110
+    unit_of_measurement: "°C"
+    device_class: temperature
+    state_class: measurement
+    entity_category: diagnostic
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  - platform: tuya
+    name: "Energia sesji"
+    sensor_datapoint: 112
+    unit_of_measurement: "kWh"
+    device_class: energy
+    state_class: total_increasing
+    accuracy_decimals: 1
+    icon: mdi:sigma
+    filters:
+      - multiply: 0.1
+
+  - platform: wifi_signal
+    name: "WiFi sygnał"
+    update_interval: 60s
+
+  - platform: uptime
+    name: "Uptime"
+
+number:
+  - platform: tuya
+    name: "Prąd ładowania"
+    number_datapoint: 114
+    min_value: 8                     # wg modelu Tuya: 8–16 A
+    max_value: 16
+    step: 1
+    unit_of_measurement: "A"
+    icon: mdi:ev-plug-type2
+
+  - platform: tuya
+    name: "Opóźnienie startu"
+    number_datapoint: 118
+    min_value: 0
+    max_value: 15
+    step: 1
+    unit_of_measurement: "h"
+    icon: mdi:car-clock
+    entity_category: config
+
+  - platform: tuya
+    name: "Czas ładowania (limit)"
+    number_datapoint: 119
+    min_value: 0
+    max_value: 15
+    step: 1
+    unit_of_measurement: "h"
+    icon: mdi:timer-outline
+    entity_category: config
+
+select:
+  # DP124 wraca do "on_demand" ~1 s po komendzie (zachowanie MCU)
+  - platform: tuya
+    name: "Sterowanie ładowaniem"
+    enum_datapoint: 124
+    icon: mdi:ev-station
+    options:
+      0: "on"
+      1: "off"
+      2: "on_demand"
+
+text_sensor:
+  - platform: template
+    id: status_text
+    name: "Status"
+    icon: mdi:ev-station
+
+  # Uwaga: w modelu Tuya Cloud nazwy DP121/122 są zamienione.
+  # Sprawdzone na urządzeniu: DP119 (limit) -> DP121 "T:xxH", DP118 (opóźnienie) -> DP122 "D:xxH".
+  - platform: tuya
+    name: "Limit czasu (wyświetlacz)" # "T:xxH"
+    sensor_datapoint: 121
+    entity_category: diagnostic
+
+  - platform: tuya
+    name: "Opóźnienie (wyświetlacz)" # "D:xxH"
+    sensor_datapoint: 122
+    entity_category: diagnostic
+
+  - platform: tuya
+    name: "Licznik czasu"            # Ctime "hh:mm:ss" – przy opóźnieniu pokazuje jego czas
+    sensor_datapoint: 120
+    entity_category: diagnostic
+
+  - platform: template
+    id: fault_text
+    name: "Błąd"
+    icon: mdi:alert-outline
+    entity_category: diagnostic
+
+binary_sensor:
+  - platform: template
+    id: fault_active
+    name: "Awaria"
+    device_class: problem
+
+  - platform: status
+    name: "Status połączenia"
+
+button:
+  - platform: restart
+    name: "Restart ESP"
